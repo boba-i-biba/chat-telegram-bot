@@ -1,5 +1,5 @@
 build:
-	@go build -o bin/bot
+	go build -o bin/bot
 
 start: build
 	./bin/bot

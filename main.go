@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/joho/godotenv"
 	"log"
 	"os"
+
+	"github.com/joho/godotenv"
 )
 
 var (
@@ -50,7 +51,7 @@ func main() {
 	for {
 		select {
 		case update := <-*updates:
-			bot.HandleUpdate(&update)
+			go bot.HandleUpdate(&update)
 		case msg := <-msgSendS:
 			var message MessageSend
 			err := message.PopulateFromJson(msg)
@@ -58,8 +59,8 @@ func main() {
 				fmt.Println("Unable to get message from 'telegram-send' topic", err)
 				continue
 			}
-			if message.ReplyTo != 0 {
-				bot.ReplyToMessage(message.ChatId, message.UserId, message.Text)
+			if message.ReplyToMessageId != 0 {
+				bot.ReplyToMessage(message.ChatId, message.ReplyToMessageId, message.Text)
 				continue
 			}
 			bot.Send(message.ChatId, message.Text)

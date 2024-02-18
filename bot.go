@@ -5,52 +5,44 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
 	"strings"
 	"time"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 // Bot todo: need to abstract types
 type Bot interface {
 	HandleUpdate(update *tgbotapi.Update)
 	Updates() *tgbotapi.UpdatesChannel
-	ReplyToMessage(chatId int64, replyToMessageId int64, text string)
+	ReplyToMessage(chatId int64, replyToMessageId int, text string)
 	Send(chatId int64, text string)
 }
 
 type TelegramBot struct {
-	instance *tgbotapi.BotAPI
-	ps       *PubSub
-}
-
-type TextPayload struct {
-	UserId    int64  `json:"userId"`
-	ChatId    int64  `json:"chatId"`
-	Data      string `json:"data"`
-	Timestamp int64  `json:"timestamp"`
+	instance *tgbotapi.BotAPI `json:"instance"`
+	ps       *PubSub          `json:"ps"`
 }
 
 type MessagePayload struct {
 	UserId    int64    `json:"userId"`
 	ChatId    int64    `json:"chatId"`
-	Data      []string `json:"data"`
+	MessageId int      `json:"messageId"`
+	Text      string   `json:"text"`
+	Types     []string `json:"types"`
 	Timestamp int64    `json:"timestamp"`
 }
 
 type MessageSend struct {
-	ChatId  int64  `json:"chatId"`
-	UserId  int64  `json:"userId"`
-	ReplyTo int64  `json:"replyTo"`
-	Text    string `json:"text"`
+	ChatId           int64  `json:"chatId"`
+	ReplyToMessageId int    `json:"replyToMessageId"`
+	Text             string `json:"text"`
 }
 
 func (msg *MessageSend) Validate() error {
 	var validationErrors []string
 
-	if msg.UserId == 0 {
-		validationErrors = append(validationErrors, "no user id")
-	}
 	if msg.ChatId == 0 {
 		validationErrors = append(validationErrors, "no chat id")
 	}
@@ -98,9 +90,9 @@ func (bot *TelegramBot) Send(chatId int64, text string) {
 	}
 }
 
-func (bot *TelegramBot) ReplyToMessage(chatId int64, replyToMessageId int64, text string) {
+func (bot *TelegramBot) ReplyToMessage(chatId int64, replyToMessageId int, text string) {
 	message := tgbotapi.NewMessage(chatId, text)
-	message.ReplyToMessageID = int(replyToMessageId)
+	message.ReplyToMessageID = replyToMessageId
 	_, err := bot.instance.Send(message)
 	if err != nil {
 		log.Println("Error when sending a reply: ", err)
@@ -120,32 +112,15 @@ func (bot *TelegramBot) HandleUpdate(update *tgbotapi.Update) {
 	message, err := GetUpdateMessage(update)
 	if err != nil {
 		log.Println(err)
+		return
 	}
+
 	msgTypes := MapMessageTypes(GetMessageTypes(message))
-	for _, msgType := range msgTypes {
-		if msgType == "text" {
-			payload, err := PrepareTextPayload(
-				message.From.ID,
-				message.Chat.ID,
-				message.Text,
-				time.Now().Unix(),
-			)
-			if err != nil {
-				fmt.Printf("error when preparing text payload:\n %+v\n", err)
-				continue
-			}
-			err = (*bot.ps).Publish(ctx,
-				"telegram-text",
-				payload,
-			)
-			if err != nil {
-				log.Println("Unable to publish to 'telegram-text' topic")
-			}
-		}
-	}
 	payload, err := PrepareMessagePayload(
 		message.From.ID,
 		message.Chat.ID,
+		message.MessageID,
+		message.Text,
 		msgTypes,
 		time.Now().Unix(),
 	)
@@ -226,35 +201,26 @@ func GetUpdateMessage(update *tgbotapi.Update) (*tgbotapi.Message, error) {
 	return nil, errors.New("no message")
 }
 
-func PrepareTextPayload(userId int64, chatId int64, data string, timestamp int64) (string, error) {
-	payload := &TextPayload{
-		UserId:    userId,
-		ChatId:    chatId,
-		Data:      data,
-		Timestamp: timestamp,
-	}
-	result, err := json.Marshal(payload)
-
-	if err != nil {
-		return "", err
-	}
-
-	return string(result), nil
-}
-
-func PrepareMessagePayload(userId int64, chatId int64, data []string, timestamp int64) (string, error) {
+func PrepareMessagePayload(
+	userId int64,
+	chatId int64,
+	messageId int,
+	text string,
+	types []string,
+	timestamp int64,
+) (string, error) {
 	payload := &MessagePayload{
 		UserId:    userId,
 		ChatId:    chatId,
-		Data:      data,
+		MessageId: messageId,
+		Text:      text,
+		Types:     types,
 		Timestamp: timestamp,
 	}
 	result, err := json.Marshal(payload)
-
 	if err != nil {
 		fmt.Printf("unable to convert message payload to json \n %+v \n", err)
 		return "", err
 	}
-
 	return string(result), nil
 }
